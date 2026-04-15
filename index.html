@@ -458,6 +458,9 @@ textarea.finput{resize:vertical;min-height:60px}
       Iniciar programa
       <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
     </button>
+    <button id="btn-notif" onclick="enableNotifs()" style="display:none;margin-top:12px;padding:9px 22px;background:transparent;border:1px solid rgba(59,130,246,0.3);border-radius:10px;color:var(--blue-l);font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer">
+      🔔 Ativar notificações de prazo
+    </button>
     <div class="welcome-time" id="w-time"></div>
   </div>
 </div>
@@ -938,10 +941,112 @@ document.addEventListener('keydown',e=>{
   if((e.ctrlKey||e.metaKey)&&e.key==='n'&&document.getElementById('screen-app').style.display!=='none'){e.preventDefault();openAdd();}
 });
 
+// ---- NOTIFICAÇÕES ----
+let notifJob = null;
+
+async function requestNotifPermission(){
+  if(!('Notification' in window)) return false;
+  if(Notification.permission === 'granted') return true;
+  if(Notification.permission === 'denied') return false;
+  const result = await Notification.requestPermission();
+  return result === 'granted';
+}
+
+function fireNotif(title, body){
+  if(Notification.permission !== 'granted') return;
+  const n = new Notification(title, {
+    body,
+    icon: 'https://raw.githubusercontent.com/ricardochiavatta-lab/painel-demandas/main/icon.png',
+    badge: 'https://raw.githubusercontent.com/ricardochiavatta-lab/painel-demandas/main/icon.png',
+    tag: 'demandas-alert',
+    renotify: true,
+    requireInteraction: true
+  });
+  n.onclick = () => { window.focus(); n.close(); };
+}
+
+function checkAndNotify(){
+  const active = tasks.filter(t => !t.done);
+  const today = tasks.filter(t => !t.done && diffDays(t.deadline) === 0);
+  const tomorrow = tasks.filter(t => !t.done && diffDays(t.deadline) === 1);
+  const overdue = tasks.filter(t => !t.done && diffDays(t.deadline) < 0);
+  const remind = active.filter(t => {
+    const d = diffDays(t.deadline);
+    return d > 0 && d <= (t.remind || 2);
+  });
+
+  if(overdue.length > 0){
+    fireNotif(
+      `⚠ ${overdue.length} tarefa(s) vencida(s)`,
+      overdue.slice(0,3).map(t=>t.name).join('\n') + (overdue.length>3?`\n+${overdue.length-3} mais`:'')
+    );
+    return;
+  }
+  if(today.length > 0){
+    fireNotif(
+      `🔴 ${today.length} tarefa(s) vencem HOJE`,
+      today.slice(0,3).map(t=>t.name).join('\n')
+    );
+    return;
+  }
+  if(tomorrow.length > 0){
+    fireNotif(
+      `🟡 ${tomorrow.length} tarefa(s) vencem amanhã`,
+      tomorrow.slice(0,3).map(t=>t.name).join('\n')
+    );
+    return;
+  }
+  if(remind.length > 0){
+    fireNotif(
+      `📋 ${remind.length} tarefa(s) com prazo próximo`,
+      remind.slice(0,3).map(t=>t.name).join('\n')
+    );
+  }
+}
+
+function scheduleNotifs(){
+  if(notifJob) clearInterval(notifJob);
+  // Verifica a cada 30 minutos
+  notifJob = setInterval(checkAndNotify, 30 * 60 * 1000);
+  // Verifica também nos horários fixos (8h, 12h, 17h)
+  function checkFixedTimes(){
+    const h = new Date().getHours(), m = new Date().getMinutes();
+    if((h===8||h===12||h===17) && m===0) checkAndNotify();
+  }
+  setInterval(checkFixedTimes, 60 * 1000);
+}
+
+async function initNotifs(){
+  if(!('Notification' in window)) return;
+  if(Notification.permission === 'granted'){
+    scheduleNotifs();
+    // Verifica logo ao abrir
+    setTimeout(checkAndNotify, 4000);
+    return;
+  }
+  // Mostra botão de ativar notificações na tela de welcome
+  const btn = document.getElementById('btn-notif');
+  if(btn) btn.style.display = 'inline-flex';
+}
+
+async function enableNotifs(){
+  const granted = await requestNotifPermission();
+  const btn = document.getElementById('btn-notif');
+  if(granted){
+    if(btn){ btn.textContent = '🔔 Notificações ativas'; btn.style.opacity='0.5'; btn.style.pointerEvents='none'; }
+    scheduleNotifs();
+    setTimeout(checkAndNotify, 2000);
+    toast('Notificações ativadas! Você receberá alertas de prazo.');
+  } else {
+    toast('Permissão negada. Ative nas configurações do navegador.');
+  }
+}
+
 // ---- INIT ----
 loadTasks();
 initWelcome();
 initTopbar();
+initNotifs();
 </script>
 </body>
 </html>
